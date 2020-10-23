@@ -50,27 +50,32 @@ def trend(gameId):
     start_time = time.time()
     # 让球 即时欧赔 echart数据
     result = cra_data.query_pay_echart(dd, gameId)
-    log.info("trend > query_pay_echart 耗时：%s" % utils.float_num(time.time() - start_time))
+    log.info("trend > query_pay_echart 耗时：%s" %
+             utils.float_num(time.time() - start_time))
 
     # 比分指数 数据
     start_time = time.time()
     bifen_result = cra_bifen.query_record(gameId)
-    log.info("trend > query_record 耗时：%s" % utils.float_num(time.time() - start_time))
+    log.info("trend > query_record 耗时：%s" %
+             utils.float_num(time.time() - start_time))
 
     # 波胆
     start_time = time.time()
     bodan_data = cra_bifen.calc_bodan(bifen_result)
-    log.info("trend > calc_bodan 耗时：%s" % utils.float_num(time.time() - start_time))
+    log.info("trend > calc_bodan 耗时：%s" %
+             utils.float_num(time.time() - start_time))
 
     # 计算即赔的波胆标准差
     start_time = time.time()
     bifen_sta_echart_data = cra_bifen.query_bodan_std(gameId)
-    log.info("trend > start_time 耗时：%s" % utils.float_num(time.time() - start_time))
+    log.info("trend > start_time 耗时：%s" %
+             utils.float_num(time.time() - start_time))
 
     # 百家欧赔
     start_time = time.time()
     baijia_oupei = cra_oupei.query_oupei_echart(dd, gameId)
-    log.info("trend > query_oupei_echart 耗时：%s" % utils.float_num(time.time() - start_time))
+    log.info("trend > query_oupei_echart 耗时：%s" %
+             utils.float_num(time.time() - start_time))
 
     # 欧赔初始凯利与即时凯利
     baijia_oupei_start = cra_oupei.query_oupei_echart2(gameId)
@@ -83,8 +88,7 @@ def trend(gameId):
     rangqiu_oupei_end = cra_oupei.query_jishioupei_echart3(gameId)
 
     return render_template("trend_echart.html", data=result, baijia_oupei=baijia_oupei, bifen_result=bifen_result,
-                           bodan_data=bodan_data, team=request.args.get('team'), bfs_data=bifen_sta_echart_data
-                           , startTime=request.args.get('startTime'), oupei_kaili=baijia_oupei_start,
+                           bodan_data=bodan_data, team=request.args.get('team'), bfs_data=bifen_sta_echart_data, startTime=request.args.get('startTime'), oupei_kaili=baijia_oupei_start,
                            rangqiu_kaili=rangqiu_oupei_start,
                            biajia_oupei_end=baijia_oupei_end, rangqiu_oupei_end=rangqiu_oupei_end)
 
@@ -123,10 +127,37 @@ def sch_method():
         return
 
 
+def sch_method_1():
+    start_time = time.time()
+    game_id_list = cra_data.process_cra_history("2015-10-17")
+
+    # 从oupei_start_info获取
+    game_id_list_oupei = cra_oupei.query_oupei_gameId()
+    for gameId in game_id_list:
+            # print("gameId:-----------------------------------",gameId)
+        gameId_id = gameId["game_no"]
+        if gameId_id in game_id_list_oupei:
+            print(gameId_id, ":初始凯利已存在，无需抓取")
+        else:
+            print("开始抓取初始凯利--------------------", gameId_id)
+            # 抓取初始欧赔凯利
+            cra_oupei.cra_chupei_oupei([gameId])
+            # 抓取让球初时凯利
+            cra_oupei.cra_rangqiu_oupei([gameId])
+            # game_id_list_if.add(gameId["game_no"])
+            print("抓取完成", gameId_id)
+
+    # 抓取比分
+    cra_bifen.cra_bifen(game_id_list)
+    # 抓取即时欧赔
+    cra_oupei.cra_sub_oupei(game_id_list)
+    print("抓取完成了 耗时：%s" % (float('%.2f' % (time.time() - start_time))))
+
+
 def run_job():
     scheduler = BlockingScheduler()
     # seconds,interval周期触发任务
-    scheduler.add_job(sch_method, 'interval', max_instances=2, seconds=40)
+    scheduler.add_job(sch_method_1, 'interval', max_instances=2, seconds=40)
     scheduler.start()
     print(time.time())
 

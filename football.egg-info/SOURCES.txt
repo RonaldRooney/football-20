@@ -2,6 +2,7 @@ README.md
 setup.py
 football/__init__.py
 football/run.py
+football/run_history.py
 football/run_timer.py
 football.egg-info/PKG-INFO
 football.egg-info/SOURCES.txt

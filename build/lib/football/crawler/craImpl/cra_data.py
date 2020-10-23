@@ -41,7 +41,7 @@ def cra_data_url(url, encoding="gb2312"):
                                               'Hm_lpvt_4f816d475bb0b9ed640ae412d6b42cab=1545553413; '
                                               '__utma=63332592.624522735.1545544702.1545544702.1545553415.2; __utmc=63332592; '
                                               'CLICKSTRN_ID=116.22.1.111-1545544699.545040::1883A6B4C23FEF9A197FDF30312303F6',
-               'Host': 'odds.500.com',
+               'Host': 'live.500.com',
                'Upgrade-Insecure-Requests': '1',
                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
                              'Chrome/70.0.3538.67 Safari/537.36'}
@@ -87,11 +87,11 @@ def cal_std2(data):
 
 
 # //tbody[@id="main-tbody"]//input[@type="checkbox"]/../text()
-def cra_main_page():
+def cra_main_page(dateString):
     print("主页抓取：")
     # 先用测试数据
     # content = testData.str
-    content = cra_data_url("http://odds.500.com/yazhi_jczq.shtml")
+    content = cra_data_url("http://odds.500.com/yazhi_jczq%s.shtml" % dateString)
     # print(soup.select("#main-tbody input[type='checkbox']"))
     selector = etree.HTML(content)
 
@@ -119,6 +119,49 @@ def cra_main_page():
     else:
         print("主页抓取失败：%s" % content)
 
+def cra_match_page(dateString):
+    print("主页抓取：")
+    # 先用测试数据
+    # content = testData.str
+    content = cra_data_url("https://live.500.com/wanchang.php?e=%s" % dateString)
+    # print(soup.select("#main-tbody input[type='checkbox']"))
+    selector = etree.HTML(content)
+
+    game_ids = selector.xpath('//table[@id="table_match"]//tr/@id')
+    lids = selector.xpath('//table[@id="table_match"]//tr/@lid')
+    season_ids =  selector.xpath('//table[@id="table_match"]//tr/td[1]/a/@href')
+    season_names =  selector.xpath('//table[@id="table_match"]//tr/td[1]/a/text()')
+    round_names =  selector.xpath('//table[@id="table_match"]//tr/td[2]/text()')
+    match_dates = selector.xpath('//table[@id="table_match"]//tr/td[3]/text()')
+    match_status = selector.xpath('//table[@id="table_match"]//tr/td[4]/span/text()')
+    home_names = selector.xpath('//table[@id="table_match"]//tr/td[5]/a/span/text()')
+    home_ids = selector.xpath('//table[@id="table_match"]//tr/td[5]/a/@href')
+    home_scores = selector.xpath('//table[@id="table_match"]//tr/td[6]/div/a[1]/text()')
+    asian_pans = selector.xpath('//table[@id="table_match"]//tr/td[6]/div/a[2]/text()')
+    away_scores = selector.xpath('//table[@id="table_match"]//tr/td[6]/div/a[3]/text()')
+    away_names = selector.xpath('//table[@id="table_match"]//tr/td[7]/a/span/text()')
+    away_ids = selector.xpath('//table[@id="table_match"]//tr/td[7]/a/@href')
+    half_scores = selector.xpath('//table[@id="table_match"]//tr/td[8]/text()')
+
+    if game_ids and len(game_ids) > 0:
+        round_names.remove(round_names[0])
+        match_dates.remove(match_dates[0])
+        half_scores.remove(half_scores[0])
+
+    for num in range(0, len(game_ids)):
+        game_ids[num] = game_ids[num].replace('a', '')
+        season_ids[num] = season_ids[num].replace('http://liansai.500.com/zuqiu-', '').replace('/', '')
+        match_dates[num] = "{}{}".format(dateString[0:5], match_dates[num])
+        home_ids[num] = home_ids[num].replace('http://liansai.500.com/team/', '').replace('/', '')
+        away_ids[num] = away_ids[num].replace('http://liansai.500.com/team/', '').replace('/', '')
+    
+     # 可以开始存库了
+    if game_ids and len(game_ids) > 0:
+        exe_result = DBUtils.executeMany("replace into match_info values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                                         zip(game_ids, lids, season_ids, season_names, round_names, home_names, away_names, home_scores, away_scores, match_dates, home_ids, away_ids, half_scores, match_status, asian_pans))
+        print("主页保存条数：%s" % exe_result)
+    else:
+        print("主页抓取失败：%s" % content)
 
 def analysis_all_sub_page(data, head_info='table[@id="datatb"]', col_index=3):
     """
@@ -152,6 +195,61 @@ def analysis_all_sub_page(data, head_info='table[@id="datatb"]', col_index=3):
     result_data = tuple(all_data["Kelly"])
 
     return result_data
+
+
+def process_oupei_page(testElemNo=None,
+                     first_tmp_url="http://odds.500.com/fenxi/ouzhi-%s.shtml",
+                     next_tmp_url="http://odds.500.com/fenxi1/ouzhi.php?id=%s&ctype=1&start=%s"
+                                           "&r=1&style=0&guojia=0&chupan=1", table_name="oupei_odd"
+                     ):
+    startTotalTime = time.time()
+    if testElemNo is not None:
+        elemNoList = testElemNo
+    else:
+        elemNoList = DBUtils.execute("select game_no,start_datetime from football_game_info "
+                                     "where start_datetime>now() order by start_datetime ")
+    all_sub_data = []
+    str_sql = "insert into " + table_name + "(game_id, cid, eu_win_num, " \
+                                            "eu_draw_num, eu_lost_num) values(%s,%s,%s,%s,%s) "
+    # 设置解析列索引
+    params = {}
+
+    if not isinstance(elemNoList, list):
+        print("不是数组:", end="")
+        print(elemNoList)
+        return []
+    """  解析让球指数页面 """
+    for elObj in elemNoList:
+        startTime = time.time()
+        time.sleep(ConstantVal.TIMER_INTERVAL)
+        elNo = elObj["game_no"]
+
+        url = first_tmp_url % elNo
+        # 子页面第一页的数据,存在多页的情况
+        all_grade_data = analysis_all_sub_page(cra_data_url(url, "utf-8"), **params)
+
+        # 子页面其他页的数据
+        start = 30
+        while True:
+            url = next_tmp_url % (elNo, start)
+            htmlData = cra_data_url(url, "utf-8")
+            if htmlData and len(htmlData.strip()) > 100:
+                result = analysis_all_sub_page(htmlData, 'tr', **params)
+                all_grade_data = concat_array(all_grade_data, result)
+                start += 30
+            else:
+                break
+
+        # 计算平方差
+        if len(all_grade_data) > 0:
+            avg_data = [str(float('%.3f' % cal_std(bb))) for bb in all_grade_data]
+            avg_data.append(elNo)
+            all_sub_data.append(avg_data)
+            # count = DBUtils.executeOne(str_sql, avg_data)
+        print(str(elNo) + " " + table_name + " 子页总共抓取条数：%s  耗时：%s" % (start, utils.float_num(time.time() - startTime)))
+    count = DBUtils.executeMany(str_sql, all_sub_data)
+    print("子页面保存数量：%s 耗时：%s" % (count, utils.float_num(time.time() - startTotalTime)))
+    return elemNoList
 
 
 def process_sub_page(testElemNo=None,
@@ -458,13 +556,20 @@ def concat_array(total_arr, target_arr):
 
 
 def process_cra():
-    cra_main_page()
+    cra_main_page("")
     # 调用子页面的解析
     try:
         return process_sub_page()
     except Exception as e:
         print()
 
+def process_cra_history(dateString):
+    cra_match_page(dateString)
+    # 调用子页面的解析
+    try:
+        return process_sub_page()
+    except Exception as e:
+        print()
 
 def main():
     startTotalTime = time.time()
